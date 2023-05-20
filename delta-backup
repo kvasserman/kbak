@@ -1,0 +1,248 @@
+#!/bin/bash
+
+set -eo pipefail
+
+# trap cleanUp EXIT
+
+# Functions
+
+function usage() {
+    local msg="$1"
+    local exitcode=$2
+
+    local output=2
+
+    [ -z "$msg" ] || printf "\nERROR: $msg\n" 1>&2
+    [ -z "$exitcode" ] && exitcode=1
+    [ $exitcode -eq 0 ] && output=1
+
+    cat 1>&$output <<EOF
+
+$myname v1
+
+Usage:
+    Backup:
+        form 0 (stdin gzipped to stdout)
+            $myname
+        form 0.1 (stdin sent gzipped to stdout with progress)
+            $myname -p
+        form 1 (full backup of a file, directory or block device)
+            $myname -s <FILE|DIR|BLOCK-DEV> [<TARGET-FILE>]
+        form 2 (full backup of standard input)
+            $myname [<TARGET-FILE>]
+        form 3 (differential backup of a file, directory or block device)
+            $myname -d -s <FILE|DIR|BLOCK-DEV> -r <FULL-FILE> [<TARGET-FILE>]
+        form 4 (differential backup of standard input)
+            $myname -d -r <FULL-FILE> [<TARGET-FILE>]
+    Restore:
+        form 5 (restore a file. ungzip it)
+            $myname --restore -s <FILE> [<TARGET-FILE|TARGET-DIR>]
+        form 6 (restore a differential backup of a file)
+            $myname --restore -s <DIFF-FILE> -r <FULL-FILE> [<TARGET-FILE|TARGET-DIR>]
+
+    -f, --full                      full backup mode (default)
+    -d, --diff, --differential      differential backup mode
+    -x, --restore                   restore mode
+    -r, --reference <full-backup>   full backup file to reference for differential backup/restore
+    -s, --source <source>           source to backup. a file, a directory or a block device
+                                    in restore mode source is full-backup or diff file
+    -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup                            
+    -p, --progress                  show progress
+    -q, --quiet                     don't output normal messages (disables progress)
+    -h, --help                      this help
+
+    NOTE: In restore mode the target must be a directory if the backup was of a directory
+EOF
+    exit $exitcode
+}
+
+shortopts='fdr:s:k:pqxh'
+longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help'
+
+function processOptions() {
+    while true; do
+        case "$1" in
+            -f|--full)
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                mode='full'
+                shift;;
+            -d|--diff|--differential)
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                mode='diff'
+                shift;;
+            -x|--restore)
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                mode='restore'
+                shift;;
+            -s|--source)
+                src="$2"
+                shift 2;;
+            -r|--reference)
+                ref="$2"
+                shift 2;;
+            -k|--key)
+                rsakey="$2"
+                shift 2;;
+            -p|--progress)
+                progress=1
+                shift;;
+            -q|--quiet)
+                progress=0
+                quiet=1
+                shift;;
+            -h|--help)
+                usage '' 0;;
+            --) 
+                shift 
+
+                [ -z "$1" ] || tgt="$1"
+
+                [ -z "$mode" ] && mode='full'
+
+                if [ "$mode" == 'restore' ]; then
+                    [[ "$src" == '-' || -f "$src" ]] || usage "Source must be stdin or an existing file. Provided '$src'"
+                else
+                    [[ "$src" == '-' || -f "$src" || -d "$src" || -b "$src" ]] || usage "Source must be stdin or an existing file, directory or block device. Provided '$src'"
+                fi
+
+                [[ "$tgt" == '-' || ! -f "$tgt" ]] || usage "Target file '$tgt' already exists"
+                [[ "$tgt" == '-' || -d "$(dirname "$tgt")" ]] || usage "Target directory '$(dirname "$tgt")' doesn't exist"
+
+                [[ "$mode" != 'diff' || -f "$ref" ]] || usage "Reference file '$ref' doesn't exist"
+                [[ "$src" != "$ref" ]] || usage "Reference file must be different from source"
+                [[ -z "$rsakey" || -f "$rsakey" ]] || usage "Key must be a file"
+                [ -z "$rsakey" ] || openssl rsa -check -in "$rsakey" -noout &>/dev/null || usage "Key must be a valid RSA private key"
+                break;;
+            *)
+                usage "Unknown option: $1";;
+        esac
+    done
+}
+
+function msg() {
+    [ $quiet -eq 1 ] || echo "$1" 1>&2
+}
+
+function addToPipe() {
+    local delim='|'
+
+    [ -z "$2" ] || delim="$2"
+
+    [ -z "$command" ] || command+=" $delim "
+    command+="$1"
+}
+
+# function cleanUp() {
+#     msg 'Cleaning up'
+#     [ -d "$tempdir" ] && rm -r "$tempdir"
+# }
+
+# End Functions
+
+# Main
+
+myname=$(basename "$0")
+
+#defaults
+mode=''
+src='-'
+tgt='-'
+ref=''
+progress=0
+quiet=0
+rsakey=''
+pass=''
+refpass=''
+
+parsedparams=$(getopt -n "$myname" -o "$shortopts" -l "$longopts" -- "$@")
+eval set -- "$parsedparams"
+
+processOptions "$@"
+
+# tempdir="$(mktemp -d "$myname.XXXXXXXXXX")"
+# # newshafile="$tempdir/sha256"
+# newkeyfile="$tempdir/secret"
+keysize=0
+
+msg "Mode: $mode. '$src' => '$tgt' (reference '$ref', progress $progress)"
+
+command=''
+
+# figure out the encryption keys
+if [ ! -z "$rsakey" ]; then
+    if [ "$mode" == 'restore' ]; then
+        msg 'Decrypting password'
+        keysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
+        kcmd="dd bs=$keysize count=1 status=none"
+        [ "$src" != '-' ] && kcmd+=" if='$src'"
+        pass=$(eval "$kcmd" | openssl pkeyutl -decrypt -inkey "$rsakey")
+
+    elif [ "$mode" == 'full' ]; then
+        msg 'Generating random password'
+        pass=$(openssl rand 50 | base64 -w0)
+
+        msg "Encrypting and storing password"
+        kcmd="printf '$pass' | openssl pkeyutl -encrypt -inkey '$rsakey'"
+        [ "$tgt" != '-' ] && kcmd+=" > '$tgt'"
+        eval "$kcmd"
+    fi
+fi
+
+# input
+if [  "$src" == '-' ]; then
+    [ $progress -eq 1 ] && addToPipe "pv -petr" 
+elif [[ -f "$src" || -b "$src" ]]; then
+    [ $keysize -gt 0 ] && addToPipe "dd bs=$keysize skip=1 if='$src' status=none" || addToPipe "cat '$src'"
+    [ $progress -eq 1 ] && addToPipe "pv -petr"
+else
+    [ $progress -eq 1 ] && addToPipe "tar -cvS '$src'" || addToPipe "tar -cS '$src'"
+fi
+
+# decryption
+# only needed if key is provided and it's restore
+[[ ! -z "$rsakey" && "$mode" == 'restore' ]] && addToPipe "openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$pass')"
+
+# decompression
+[ "$mode" == 'restore' ] && addToPipe "gzip -dc"
+
+# delta
+# full backup doesn't need any diffing or undiffing
+if [ "$mode" == 'diff' ]; then
+    addToPipe "xdelta3 -ecRqA -s '$ref'"
+elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
+    addToPipe "xdelta3 -dcRqA -s '$ref'"
+fi
+
+# untar
+# only needed if mode is restore and target is a directory
+if [[ "$mode" == 'restore' && -d "$tgt"  ]]; then
+	if [ $progress -eq 1 ]; then
+		addToPipe "tar -xv -C '$tgt'"
+	else
+		addToPipe "tar -x -C '$tgt'"
+	fi
+fi
+
+# compression
+# only needed for mode full and diff
+[ "$mode" == 'restore' ] || addToPipe "gzip -c"
+
+# encryption
+# only needed for mode full and diff
+[[ -z "$rsakey" || "$mode" == 'restore' ]] || addToPipe "openssl enc -e -aes256 -pbkdf2 -iter 10000 -pass file:<(printf '$pass')"
+
+# # sha calc
+# # ignore sha calc for restore
+# [ "$mode" == 'restore' ] || addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$newshafile')"
+
+#output
+if [ "$tgt" != '-' ]; then 
+    # restore to directory is handled by untar (above)
+    [[ "$mode" == 'restore' && -d "$tgt" ]] || addToPipe "'$tgt'" '>>'
+fi
+
+# show the thing
+# msg "$command"
+
+# run the thing
+eval "$command"

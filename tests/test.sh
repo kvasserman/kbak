@@ -21,7 +21,7 @@ function oneTimeSetUp() {
 	echo "some text 2" > "$files/text2.txt"
 	echo "some text 3" > "$files/sub/text3.txt"
 	echo "hidden" > "$files/.hidden"
-	dd bs=16M count=2 if=/dev/zero of="$files/file.bin" status=none
+	dd bs=16M count=2 if=/dev/urandom of="$files/file.bin" status=none
 }
 
 function tearDown() {
@@ -32,8 +32,11 @@ function tearDown() {
 function testBackupFile() {
 	doHeader 'Testing backup and restore of one file'
 
-	$delta -s "$files/file.bin" "$backups/file.bin.gz"
-	$delta --restore -s "$backups/file.bin.gz" "$backups/file.bin"
+	$delta -s "$files/file.bin" "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	$delta --restore -s "$backups/file.dbak" "$backups/file.bin"
+	assertEquals "$delta call failed" 0 $?
 
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
 }
@@ -41,8 +44,11 @@ function testBackupFile() {
 function testBackupFileStdInOut() {
 	doHeader 'Testing backup and restore of one file from stdin'
 
-	cat "$files/file.bin" | $delta > "$backups/file.bin.gz"
-	cat "$backups/file.bin.gz" | $delta --restore > "$backups/file.bin"
+	cat "$files/file.bin" | $delta > "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	cat "$backups/file.dbak" | $delta --restore > "$backups/file.bin"
+	assertEquals "$delta call failed" 0 $?
 
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
 }
@@ -50,8 +56,11 @@ function testBackupFileStdInOut() {
 function testBackupFileStdIn() {
 	doHeader 'Testing backup and restore of one file from stdin'
 
-	cat "$files/file.bin" | $delta "$backups/file.bin.gz"
-	cat "$backups/file.bin.gz" | $delta --restore "$backups/file.bin"
+	cat "$files/file.bin" | $delta "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	cat "$backups/file.dbak" | $delta --restore "$backups/file.bin"
+	assertEquals "$delta call failed" 0 $?
 
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
 }
@@ -59,8 +68,11 @@ function testBackupFileStdIn() {
 function testBackupFileStdOut() {
 	doHeader 'Testing backup and restore of one file from stdin'
 
-	$delta -s "$files/file.bin" > "$backups/file.bin.gz"
-	$delta --restore -s "$backups/file.bin.gz" > "$backups/file.bin"
+	$delta -s "$files/file.bin" > "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	$delta --restore -s "$backups/file.dbak" > "$backups/file.bin"
+	assertEquals "$delta call failed" 0 $?
 
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
 }
@@ -68,8 +80,11 @@ function testBackupFileStdOut() {
 function testBackupDirectory() {
 	doHeader 'Testing backup and restore of one directory'
 
-	$delta -s "$files" "$backups/files.tar.gz"
-	$delta --restore -s "$backups/files.tar.gz" "$backups"
+	$delta -s "$files" "$backups/files.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	$delta --restore -s "$backups/files.dbak" "$backups"
+	assertEquals "$delta call failed" 0 $?
 
 	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
 	assertEquals 'Restored files are different in sub' "$(sha256sum "$files"/sub/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/sub/* | cut -d' ' -f1)"
@@ -81,13 +96,16 @@ function testDiffBackupFile() {
 	mkdir -p "$backups/copy"
 	cp -r "$files"/* "$backups/copy/"
 	
-	$delta -s "$backups/copy/file.bin" "$backups/file.bin.gz"
+	$delta -s "$backups/copy/file.bin" "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
 
 	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
 	
-	$delta -s "$backups/copy/file.bin" -dr "$backups/file.bin.gz" "$backups/file.bin.diff.gz"
+	$delta -s "$backups/copy/file.bin" -dr "$backups/file.dbak" "$backups/file.diff.dbak"
+	assertEquals "$delta call failed" 0 $?
 
-	$delta --restore -s "$backups/file.bin.diff.gz" -r "$backups/file.bin.gz" "$backups/file-from-diff.bin"
+	$delta --restore -s "$backups/file.diff.dbak" -r "$backups/file.dbak" "$backups/file-from-diff.bin"
+	assertEquals "$delta call failed" 0 $?
 
 	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
 	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
@@ -102,17 +120,20 @@ function testDiffBackupDirectory() {
 	mkdir -p "$backups/copy"
 	cp -r "$files"/* "$backups/copy/"
 
-	$delta -s "$backups/copy" "$backups/files.tar.gz"
+	$delta -s "$backups/copy" "$backups/files.dbak"
+	assertEquals "$delta call failed" 0 $?
 
 	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
 	echo "new text" >> "$backups/copy/text2.txt"
 	echo "new text" >> "$backups/copy/sub/text3.txt"
 	rm "$backups/copy/text.txt"
 
-	$delta -s "$backups/copy" -dr "$backups/files.tar.gz" "$backups/files.diff.gz"
+	$delta -s "$backups/copy" -dr "$backups/files.dbak" "$backups/files.diff.dbak"
+	assertEquals "$delta call failed" 0 $?
 
 	mkdir -p "$backups/diff"
-	$delta --restore -p -s "$backups/files.diff.gz" -r "$backups/files.tar.gz" "$backups/diff"
+	$delta --restore -s "$backups/files.diff.dbak" -r "$backups/files.dbak" "$backups/diff"
+	assertEquals "$delta call failed" 0 $?
 
 	local sha1="$(sha256sum "$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
 	local sha2="$(sha256sum "$backups/diff/$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
@@ -140,14 +161,125 @@ function testBackupFileWithEncryption() {
 	assertEquals "Restore failed" 0 $?
 
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
-
-	# ls -l "$backups"/
 }
 
-function suite() {
-	# suite_addTest testBackupFile
-	suite_addTest testBackupFileWithEncryption
+function testBackupFileWithEncryptionWrongKey() {
+	doHeader 'Testing backup and restore of one file with encryption'
+
+	local key1="$backups/private1.key"
+	local key2="$backups/private2.key"
+	openssl genrsa -out "$key1" 4096
+	openssl genrsa -out "$key2" 4096
+
+	$delta -s "$files/file.bin" -k "$key1" "$backups/file.dbak"
+	assertEquals "Full backup failed" 0 $?
+
+	$delta --restore -s "$backups/file.dbak" -k "$key2" "$backups/file.bin"
+	assertEquals "Restore didn't fail" 1 $?
 }
+
+function testBackupFileStdInOutWithEncryption() {
+	doHeader 'Testing backup and restore of one file from stdin with encryption'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	cat "$files/file.bin" | $delta -k "$key" > "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	cat "$backups/file.dbak" | $delta --restore -k "$key" > "$backups/file.bin"
+	assertEquals "$delta call failed" 0 $?
+
+	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
+}
+
+function testDiffBackupFileWithEncryption() {
+	doHeader 'Testing differential backup and restore of one file with encryption'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+	
+	$delta -k "$key" -s "$backups/copy/file.bin" "$backups/file.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	
+	$delta -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.dbak" "$backups/file.diff.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	$delta --restore -k "$key" -s "$backups/file.diff.dbak" -r "$backups/file.dbak" "$backups/file-from-diff.bin"
+	assertEquals "$delta call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
+
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored file is different' "$sha1" "$sha2"
+
+	# ls -l "$backups"
+}
+
+function testBackupDirectoryWithEncryption() {
+	doHeader 'Testing backup and restore of one directory with encryption'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	$delta -k "$key" -s "$files" "$backups/files.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	$delta --restore -k "$key" -s "$backups/files.dbak" "$backups"
+	assertEquals "$delta call failed" 0 $?
+
+	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
+	assertEquals 'Restored files are different in sub' "$(sha256sum "$files"/sub/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/sub/* | cut -d' ' -f1)"
+}
+
+function testDiffBackupDirectoryWithEncryption() {
+	doHeader 'Testing differential backup and restore of a directory with encryption'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+
+	$delta -k "$key" -s "$backups/copy" "$backups/files.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	echo "new text" >> "$backups/copy/text2.txt"
+	echo "new text" >> "$backups/copy/sub/text3.txt"
+	rm "$backups/copy/text.txt"
+
+	$delta -k "$key" -s "$backups/copy" -dr "$backups/files.dbak" "$backups/files.diff.dbak"
+	assertEquals "$delta call failed" 0 $?
+
+	mkdir -p "$backups/diff"
+	$delta --restore -k "$key" -s "$backups/files.diff.dbak" -r "$backups/files.dbak" "$backups/diff"
+	assertEquals "$delta call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/diff/$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
+	
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored directory is different' "$sha1" "$sha2"
+
+	local sha1="$(sha256sum "$backups/copy/sub"/* 2>/dev/null | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/diff/$backups/copy/sub"/* 2>/dev/null | cut -d' ' -f1)"
+	
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored sub-directory is different' "$sha1" "$sha2"
+}
+
+# function suite() {
+# 	# suite_addTest testBackupFile
+# 	# suite_addTest testBackupFileWithEncryption
+# 	suite_addTest testDiffBackupFileWithEncryption
+# }
 
 fullpath="$(readlink -f "$0")"
 relpath="$(realpath --relative-to=. "$fullpath")"

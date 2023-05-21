@@ -153,16 +153,13 @@ quiet=0
 rsakey=''
 pass=''
 refpass=''
+keysize=0
+refkeysize=0
 
 parsedparams=$(getopt -n "$myname" -o "$shortopts" -l "$longopts" -- "$@")
 eval set -- "$parsedparams"
 
 processOptions "$@"
-
-# tempdir="$(mktemp -d "$myname.XXXXXXXXXX")"
-# # newshafile="$tempdir/sha256"
-# newkeyfile="$tempdir/secret"
-keysize=0
 
 msg "Mode: $mode. '$src' => '$tgt' (reference '$ref', progress $progress)"
 
@@ -171,13 +168,22 @@ command=''
 # figure out the encryption keys
 if [ ! -z "$rsakey" ]; then
     if [ "$mode" == 'restore' ]; then
-        msg 'Decrypting password'
+
         keysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
+
+        msg 'Decrypting password'
         kcmd="dd bs=$keysize count=1 status=none"
         [ "$src" != '-' ] && kcmd+=" if='$src'"
         pass=$(eval "$kcmd" | openssl pkeyutl -decrypt -inkey "$rsakey")
 
-    elif [ "$mode" == 'full' ]; then
+        if [[ ! -z "$ref" ]]; then
+            refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
+
+            msg 'Decrypting reference password'
+            refpass=$(dd bs=$refkeysize count=1 status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+        fi
+
+    else
         msg 'Generating random password'
         pass=$(openssl rand 50 | base64 -w0)
 
@@ -185,6 +191,13 @@ if [ ! -z "$rsakey" ]; then
         kcmd="printf '$pass' | openssl pkeyutl -encrypt -inkey '$rsakey'"
         [ "$tgt" != '-' ] && kcmd+=" > '$tgt'"
         eval "$kcmd"
+
+        if [[ "$mode" == 'diff' ]]; then
+            refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
+
+            msg 'Decrypting reference password'
+            refpass=$(dd bs=$refkeysize count=1 status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+        fi
     fi
 fi
 
@@ -208,9 +221,11 @@ fi
 # delta
 # full backup doesn't need any diffing or undiffing
 if [ "$mode" == 'diff' ]; then
-    addToPipe "xdelta3 -ecRqA -s '$ref'"
+    [ $refkeysize -eq 0 ] && addToPipe "xdelta3 -ecRqA -s '$ref'" || \
+        addToPipe "xdelta3 -ecRqA -s <(dd bs=$refkeysize skip=1 status=none if='$ref' | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass') | gzip -dc)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
-    addToPipe "xdelta3 -dcRqA -s '$ref'"
+    [ $refkeysize -eq 0 ] && addToPipe "xdelta3 -dcRqA -s '$ref'" || \
+        addToPipe "xdelta3 -dcRqA -s <(dd bs=$refkeysize skip=1 status=none if='$ref' | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass') | gzip -dc)"
 fi
 
 # untar

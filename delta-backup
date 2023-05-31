@@ -206,7 +206,17 @@ if [  "$src" == '-' ]; then
     [ $progress -eq 1 ] && addToPipe "pv -petr" 
 elif [[ -f "$src" || -b "$src" ]]; then
     [ $keysize -gt 0 ] && addToPipe "dd bs=$keysize skip=1 if='$src' status=none" || addToPipe "cat '$src'"
-    [ $progress -eq 1 ] && addToPipe "pv -petr"
+    if [ $progress -eq 1 ]; then
+        filesize=''
+        if [ -f "$src" ]; then
+            filesize=$(stat --printf='%s' "$src")
+        else
+            filesize=$(blockdev --getsize64 "$src")
+        fi
+        [ $keysize -gt 0 ] && filesize=$(($filesize - $keysize))
+        filesize="s $filesize"
+        addToPipe "pv -petr${filesize}"
+    fi
 else
     [ $progress -eq 1 ] && addToPipe "tar -cvS '$src'" || addToPipe "tar -cS '$src'"
 fi

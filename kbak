@@ -273,20 +273,24 @@ if [ "$mode" == 'restore' ]; then
     fheader="$(getHeader "$src")"
     
     fid="$(getHeaderPart "$fheader" id)"
+    fmode="$(getHeaderPart "$fheader" mode)"
     frefid="$(getHeaderPart "$fheader" refid)"
     fkeysig="$(getHeaderPart "$fheader" keysha)"
 
-    # echo "key:      $keysig"
-    # echo "header:   $fkeysig
     [[ -z "$rsakey" || "$keysig" == "$fkeysig" ]] || (msg "File '$src' is not encrypted with the provided key."; exit 1)
+    [[ "$fmode" == 'diff' && -z "$ref" ]] && (msg "Source is a differential backup, but reference to full backup is not provided."; exit 1)
+    [[ "$fmode" == 'full' && ! -z "$ref" ]] && (msg "Source is a full backup, but reference is also provided."; exit 1)
 
     refid=''
     if [ ! -z "$ref" ]; then 
         refheader="$(getHeader "$ref")"
-        refid="$(getHeaderPart "$refheader" refid)"
+        refmode="$(getHeaderPart "$refheader" mode)"
+        refid="$(getHeaderPart "$refheader" id)"
         refkeysig="$(getHeaderPart "$refheader" keysha)"
 
+        [[ "$refmode" != 'full' ]] && (msg "Reference is not a full backup."; exit 1)
         [[ -z "$rsakey" || "$keysig" == "$refkeysig" ]] || (msg "File '$ref' is not encrypted with the provided key."; exit 1)
+        [[ "$frefid" != "$refid" ]] && (msg "Reference '$ref' is not the reference that was used to create source diff backup."; exit 1)
 
         refskipbytes=$(($refskipbytes + ${#refheader}))
     fi
@@ -297,7 +301,7 @@ else
     refid=''
     if [ "$mode" == 'diff' ]; then 
         refheader="$(getHeader "$ref")"
-        refid="$(getHeaderPart "$refheader" refid)"
+        refid="$(getHeaderPart "$refheader" id)"
         refskipbytes=$(($refskipbytes + ${#refheader}))
     fi
     

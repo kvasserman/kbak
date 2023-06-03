@@ -76,18 +76,18 @@ function testBackupFileStdOut() {
 	assertEquals 'Restored file is different' "$(sha256sum "$files/file.bin" | cut -d' ' -f1)" "$(sha256sum "$backups/file.bin" | cut -d' ' -f1)"
 }
 
-# function testBackupDirectory() {
-# 	doHeader 'Testing backup and restore of one directory'
+function testBackupDirectory() {
+	doHeader 'Testing backup and restore of one directory'
 
-# 	$delta -s "$files" "$backups/files.kbak"
-# 	assertEquals "$delta call failed" 0 $?
+	$delta -s "$files" "$backups/files.kbak"
+	assertEquals "$delta call failed" 0 $?
 
-# 	$delta --restore -s "$backups/files.kbak" "$backups"
-# 	assertEquals "$delta call failed" 0 $?
+	$delta --restore -s "$backups/files.kbak" "$backups"
+	assertEquals "$delta call failed" 0 $?
 
-# 	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
-# 	assertEquals 'Restored files are different in sub' "$(sha256sum "$files"/sub/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/sub/* | cut -d' ' -f1)"
-# }
+	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
+	assertEquals 'Restored files are different in sub' "$(sha256sum "$files"/sub/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/sub/* | cut -d' ' -f1)"
+}
 
 function testDiffBackupFile() {
 	doHeader 'Testing differential backup and restore of one file'

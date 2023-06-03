@@ -10,7 +10,7 @@ function usage() {
 
     local output=2
 
-    [ -z "$msg" ] || printf "\nERROR: $msg\n" 1>&2
+    [ -z "$msg" ] || (printf "\nERROR: $msg\n\nUse -h or --help for usage\n" 1>&2; exit 1)
     [ -z "$exitcode" ] && exitcode=1
     [ $exitcode -eq 0 ] && output=1
 
@@ -405,9 +405,12 @@ fi
 # only needed for mode full and diff
 [[ -z "$rsakey" || "$mode" == 'restore' ]] || addToPipe "openssl enc -e -aes256 -pbkdf2 -iter 10000 -pass file:<(printf '$pass')"
 
-# # sha calc
-# # ignore sha calc for restore
-# [ "$mode" == 'restore' ] || addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$newshafile')"
+# sha calc
+tempsha=''
+if [[ "$mode" != 'restore' && "$tgt" != '-' ]]; then
+    tempsha=$(mktemp)
+    addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$tempsha' || kill $$)"
+fi
 
 #output
 if [ "$tgt" != '-' ]; then 
@@ -420,3 +423,12 @@ fi
 
 # run the thing
 eval "$command"
+
+if [ -f "$tempsha" ]; then
+    # update target header with content hash
+    hash=$(cat "$tempsha")
+    printf "$hash" | dd bs=1 count=64 seek=160 conv=notrunc of="$tgt" status=none
+    rm "$tempsha"
+fi
+
+msg "Done"

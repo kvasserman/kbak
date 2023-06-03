@@ -2,8 +2,6 @@
 
 set -eo pipefail
 
-# trap cleanUp EXIT
-
 # Functions
 
 function usage() {
@@ -18,7 +16,7 @@ function usage() {
 
     cat 1>&$output <<EOF
 
-$myname v1
+$myname v$myver
 
 Usage:
     Backup:
@@ -43,6 +41,7 @@ Usage:
     -f, --full                      full backup mode (default)
     -d, --diff, --differential      differential backup mode
     -x, --restore                   restore mode
+        --info                      show backup information about source file
     -r, --reference <full-backup>   full backup file to reference for differential backup/restore
     -s, --source <source>           source to backup. a file, a directory or a block device
                                     in restore mode source is full-backup or diff file
@@ -57,22 +56,26 @@ EOF
 }
 
 shortopts='fdr:s:k:pqxh'
-longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help'
+longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info'
 
 function processOptions() {
     while true; do
         case "$1" in
             -f|--full)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
                 mode='full'
                 shift;;
             -d|--diff|--differential)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
                 mode='diff'
                 shift;;
             -x|--restore)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential or --restore"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
                 mode='restore'
+                shift;;
+            --info)
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
+                mode='info'
                 shift;;
             -s|--source)
                 src="$2"
@@ -99,7 +102,7 @@ function processOptions() {
 
                 [ -z "$mode" ] && mode='full'
 
-                if [ "$mode" == 'restore' ]; then
+                if [[ "$mode" == 'restore' || "$mode" == 'info' ]]; then
                     [[ "$src" == '-' || -f "$src" ]] || usage "Source must be stdin or an existing file. Provided '$src'"
                 else
                     [[ "$src" == '-' || -f "$src" || -d "$src" || -b "$src" ]] || usage "Source must be stdin or an existing file, directory or block device. Provided '$src'"
@@ -132,16 +135,108 @@ function addToPipe() {
     command+="$1"
 }
 
-# function cleanUp() {
-#     msg 'Cleaning up'
-#     [ -d "$tempdir" ] && rm -r "$tempdir"
-# }
+function createHeader() {
+    local refid="$1"
+    local keysha="$2"
+    local sha256="$3"
+
+    [ -z "$refid" ] && refid="$(printf '%036d' 0)"
+    [ -z "$keysha" ] && keysha="$(printf '%064d' 0)"
+    [ -z "$sha256" ] && sha256="$(printf '%064d' 0)"
+
+    # kbak    4   0-3       signature
+    # fver    4   4-7       file version
+    # mode    4   8-11      full or diff
+    # id      36  12-47     unique id
+    # refid   36  48-83     unique id of reference
+    # tstamp  12  84-95     timestamp
+    # keysha  64  96-159    sha256 of public key
+    # sha256  64  160-223   sha256 of content
+    # reserve 288 224-511   reserved space
+    local format='%.4s%04x%.4s%36s%36s%012x%64s%64s%288s'
+    local reserve="$(printf '%0288d' 0)"
+
+    printf "$format" "$sig" $filever $mode "$(uuidgen)" "$refid" $(date -u +%s) "$keysha" "$sha256" "$reserve"
+}
+
+function getHeaderPart() {
+    local header="$1"
+    local key="$2"
+    local s=0
+    local l=0
+
+    case "$key" in
+        sig) s=0; l=4;;
+        fver) s=4; l=4;;
+        mode) s=8; l=4;;
+        id) s=12; l=36;;
+        refid) s=48; l=36;;
+        tstamp) s=84; l=12;;
+        keysha) s=96; l=64;;
+        sha256) s=160; l=64;;
+    esac 
+
+    printf "${header:$s:$l}"
+}
+
+function getHeader() {
+    local file="$1"
+    local ifc=''
+    local hlen="$(createHeader | wc -c)"
+
+    [ "$file" == '-' ] || ifc="if='$file'"
+    local header="$(eval "dd bs=$hlen count=1 status=none $ifc | cat -A")" # cat -A to avoid null byte issues
+
+    [ ${#header} -eq $hlen ] || msg "File '$file' has an invalid $myname signature"
+
+    local fsig="$(getHeaderPart "$header" sig)"
+    [ "$fsig" == "$sig" ] || (msg "'$file' doesn't appear to be $myname file"; exit 1)
+
+    local fver="$(getHeaderPart "$header" fver)"
+    printf "$fver" | grep -P '^[\da-f]{4}$' &>/dev/null || (msg "Unknown $myname file version: $(printf "$fver" | cat -A)"; exit 1)
+    case "$((16#$fver))" in 
+        $filever) ;;
+        *)
+            msg "Unknown $myname file version: $(printf "$fver" | cat -A)"
+            exit 1;;
+    esac
+    printf "$header"
+}
+
+function showInfo() {
+    local header="$(getHeader "$1")"
+
+    local ts=$((16#$(getHeaderPart "$header" tstamp)))
+    local refid="$(getHeaderPart "$header" refid)"
+    local keysha="$(getHeaderPart "$header" keysha)"
+    local sha256="$(getHeaderPart "$header" sha256)"
+
+    [ -z "$(printf "$refid" | sed 's/0//g')" ] && refid='n/a'
+    [ -z "$(printf "$keysha" | sed 's/0//g')" ] && keysha='n/a'
+    [ -z "$(printf "$sha256" | sed 's/0//g')" ] && sha256='n/a'
+    
+    cat <<EOF
+Source file:                $1
+File Version:               $((16#$(getHeaderPart "$header" fver)))
+Backup Type:                $(getHeaderPart "$header" mode)
+Backup Id:                  $(getHeaderPart "$header" id)
+Reference Backup Id:        $refid
+UTC Backup Time:            $(date -u -d @$ts)
+Local Backup Time:          $(date -d @$ts)
+Key Signature:              $keysha
+Content SHA256 Hash:        $sha256
+EOF
+}
 
 # End Functions
 
 # Main
 
+# global constants
 myname=$(basename "$0")
+myver='1.1'
+filever=1
+sig='kbak'
 
 #defaults
 mode=''
@@ -153,17 +248,65 @@ quiet=0
 rsakey=''
 pass=''
 refpass=''
-keysize=0
-refkeysize=0
+skipbytes=0
+refskipbytes=0
 
 parsedparams=$(getopt -n "$myname" -o "$shortopts" -l "$longopts" -- "$@")
 eval set -- "$parsedparams"
 
 processOptions "$@"
 
-msg "Mode: $mode. '$src' => '$tgt' (reference '$ref', progress $progress)"
+if [ "$mode" == 'info' ]; then
+    showInfo "$src"
+    exit 0
+fi
+
+msg "Mode: $mode. '$src' => '$tgt' (reference '$ref')"
 
 command=''
+
+# deal with headers
+keysig=''
+[ -z "$rsakey" ] || keysig="$(openssl pkey -pubout -in "$rsakey" -outform der | sha256sum | cut -d' ' -f1)"
+
+if [ "$mode" == 'restore' ]; then
+    fheader="$(getHeader "$src")"
+    
+    fid="$(getHeaderPart "$fheader" id)"
+    frefid="$(getHeaderPart "$fheader" refid)"
+    fkeysig="$(getHeaderPart "$fheader" keysha)"
+
+    # echo "key:      $keysig"
+    # echo "header:   $fkeysig
+    [[ -z "$rsakey" || "$keysig" == "$fkeysig" ]] || (msg "File '$src' is not encrypted with the provided key."; exit 1)
+
+    refid=''
+    if [ ! -z "$ref" ]; then 
+        refheader="$(getHeader "$ref")"
+        refid="$(getHeaderPart "$refheader" refid)"
+        refkeysig="$(getHeaderPart "$refheader" keysha)"
+
+        [[ -z "$rsakey" || "$keysig" == "$refkeysig" ]] || (msg "File '$ref' is not encrypted with the provided key."; exit 1)
+
+        refskipbytes=$(($refskipbytes + ${#refheader}))
+    fi
+
+    skipbytes=${#fheader}
+
+else
+    refid=''
+    if [ "$mode" == 'diff' ]; then 
+        refheader="$(getHeader "$ref")"
+        refid="$(getHeaderPart "$refheader" refid)"
+        refskipbytes=$(($refskipbytes + ${#refheader}))
+    fi
+    
+    newheader=$(createHeader "$refid" "$keysig")
+    hlen=${#newheader}
+    cmd="printf '$newheader' | dd bs=$hlen count=1 status=none"
+    [ "$tgt" == '-' ] || cmd+=" of='$tgt'"
+    eval "$cmd"
+fi
 
 # figure out the encryption keys
 if [ ! -z "$rsakey" ]; then
@@ -171,32 +314,38 @@ if [ ! -z "$rsakey" ]; then
 
         keysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
 
-        msg 'Decrypting password'
-        kcmd="dd bs=$keysize count=1 status=none"
-        [ "$src" != '-' ] && kcmd+=" if='$src'"
+        # msg 'Decrypting password'
+        kcmd="dd bs=1 count=$keysize status=none"
+        [ "$src" != '-' ] && kcmd+=" if='$src' skip=$skipbytes"
         pass=$(eval "$kcmd" | openssl pkeyutl -decrypt -inkey "$rsakey")
 
-        if [[ ! -z "$ref" ]]; then
+        if [ ! -z "$ref" ]; then
             refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
 
-            msg 'Decrypting reference password'
-            refpass=$(dd bs=$refkeysize count=1 status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+            # msg 'Decrypting reference password'
+            refpass=$(dd bs=1 count=$refkeysize skip=$refskipbytes status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+
+            refskipbytes=$(($refskipbytes + $refkeysize))
         fi
 
-    else
-        msg 'Generating random password'
-        pass=$(openssl rand 50 | base64 -w0)
+        skipbytes=$(($skipbytes + $keysize))
 
-        msg "Encrypting and storing password"
+    else
+        # msg 'Generating random password'
+        pass='test' # $(openssl rand 50 | base64 -w0)
+
+        # msg "Encrypting and storing password"
         kcmd="printf '$pass' | openssl pkeyutl -encrypt -inkey '$rsakey'"
-        [ "$tgt" != '-' ] && kcmd+=" > '$tgt'"
+        [ "$tgt" != '-' ] && kcmd+=" >> '$tgt'"
         eval "$kcmd"
 
-        if [[ "$mode" == 'diff' ]]; then
+        if [ "$mode" == 'diff' ]; then
             refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
 
-            msg 'Decrypting reference password'
-            refpass=$(dd bs=$refkeysize count=1 status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+            # msg "Decrypting reference password"
+            refpass=$(dd bs=1 count=$refkeysize skip=$refskipbytes status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+
+            refskipbytes=$(($refskipbytes + $refkeysize))
         fi
     fi
 fi
@@ -205,7 +354,7 @@ fi
 if [  "$src" == '-' ]; then
     [ $progress -eq 1 ] && addToPipe "pv -petr" 
 elif [[ -f "$src" || -b "$src" ]]; then
-    [ $keysize -gt 0 ] && addToPipe "dd bs=$keysize skip=1 if='$src' status=none" || addToPipe "cat '$src'"
+    [ $skipbytes -gt 0 ] && addToPipe "dd bs=$skipbytes skip=1 if='$src' status=none" || addToPipe "cat '$src'"
     if [ $progress -eq 1 ]; then
         filesize=''
         if [ -f "$src" ]; then
@@ -213,7 +362,7 @@ elif [[ -f "$src" || -b "$src" ]]; then
         else
             filesize=$(blockdev --getsize64 "$src")
         fi
-        [ $keysize -gt 0 ] && filesize=$(($filesize - $keysize))
+        [ $skipbytes -gt 0 ] && filesize=$(($filesize - $skipbytes))
         filesize="s $filesize"
         addToPipe "pv -petr${filesize}"
     fi
@@ -230,12 +379,12 @@ fi
 
 # delta
 # full backup doesn't need any diffing or undiffing
+refdecryptcmd=''
+[ -z "$rsakey" ] || refdecryptcmd="| openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass')"
 if [ "$mode" == 'diff' ]; then
-    [ $refkeysize -eq 0 ] && addToPipe "xdelta3 -ecRqA -s '$ref'" || \
-        addToPipe "xdelta3 -ecRqA -s <(dd bs=$refkeysize skip=1 status=none if='$ref' | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass') | gzip -dc)"
+    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | gzip -dc || kill $$)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
-    [ $refkeysize -eq 0 ] && addToPipe "xdelta3 -dcRqA -s '$ref'" || \
-        addToPipe "xdelta3 -dcRqA -s <(dd bs=$refkeysize skip=1 status=none if='$ref' | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass') | gzip -dc)"
+    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | gzip -dc || kill $$)"
 fi
 
 # untar

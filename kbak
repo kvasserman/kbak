@@ -224,7 +224,7 @@ Reference Backup Id:        $refid
 UTC Backup Time:            $(date -u -d @$ts)
 Local Backup Time:          $(date -d @$ts)
 Key Signature:              $keysha
-Content SHA256 Hash:        $sha256
+Payload SHA256:             $sha256
 EOF
 }
 

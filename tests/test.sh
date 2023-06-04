@@ -168,6 +168,10 @@ function testBackupFileWithEncryption() {
 	$kbak -s "$files/file.bin" -k "$key" "$backups/file.kbak"
 	assertEquals "Full backup failed" 0 $?
 
+	echo "Backup file info:"
+	$kbak -s "$backups/file.kbak" --info
+	echo ""
+
 	$kbak --restore -s "$backups/file.kbak" -k "$key" "$backups/file.bin"
 	assertEquals "Restore failed" 0 $?
 

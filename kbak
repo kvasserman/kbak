@@ -20,9 +20,9 @@ $myname v$myver
 
 Usage:
     Backup:
-        form 0 (stdin gzipped to stdout)
+        form 0 (stdin backed up to stdout)
             $myname
-        form 0.1 (stdin sent gzipped to stdout with progress)
+        form 0.1 (stdin sent backed up to stdout with progress)
             $myname -p
         form 1 (full backup of a file, directory or block device)
             $myname -s <FILE|DIR|BLOCK-DEV> [<TARGET-FILE>]
@@ -33,7 +33,7 @@ Usage:
         form 4 (differential backup of standard input)
             $myname -d -r <FULL-FILE> [<TARGET-FILE>]
     Restore:
-        form 5 (restore a file. ungzip it)
+        form 5 (restore a file)
             $myname --restore -s <FILE> [<TARGET-FILE|TARGET-DIR>]
         form 6 (restore a differential backup of a file)
             $myname --restore -s <DIFF-FILE> -r <FULL-FILE> [<TARGET-FILE|TARGET-DIR>]
@@ -45,7 +45,8 @@ Usage:
     -r, --reference <full-backup>   full backup file to reference for differential backup/restore
     -s, --source <source>           source to backup. a file, a directory or a block device
                                     in restore mode source is full-backup or diff file
-    -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup                            
+    -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup         
+        --pigz <N>                  Use pigz for compression (N is the number of processors to use)                   
     -p, --progress                  show progress
     -q, --quiet                     don't output normal messages (disables progress)
     -h, --help                      this help
@@ -56,7 +57,7 @@ EOF
 }
 
 shortopts='fdr:s:k:pqxh'
-longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info'
+longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info,pigz:'
 
 function processOptions() {
     while true; do
@@ -93,6 +94,10 @@ function processOptions() {
                 progress=0
                 quiet=1
                 shift;;
+            --pigz)
+                cpus="$2"
+                compressor="pigz -p $cpus"
+                shift 2;;
             -h|--help)
                 usage '' 0;;
             --) 
@@ -115,6 +120,8 @@ function processOptions() {
                 [[ "$src" != "$ref" ]] || usage "Reference file must be different from source"
                 [[ -z "$rsakey" || -f "$rsakey" ]] || usage "Key must be a file"
                 [ -z "$rsakey" ] || openssl rsa -check -in "$rsakey" -noout &>/dev/null || usage "Key must be a valid RSA private key"
+
+                [[ "$compressor" == 'pigz' && ! "$cpus" =~ ^[1-9][0-9]*$ ]] && usage "pigz option requires a number of processors (an integer greater than 0)"
                 break;;
             *)
                 usage "Unknown option: $1";;
@@ -233,7 +240,7 @@ EOF
 # Main
 
 # global constants
-myname=$(basename "$0")
+myname='kbak'
 myver='1.1'
 filever=1
 sig='kbak'
@@ -250,18 +257,25 @@ pass=''
 refpass=''
 skipbytes=0
 refskipbytes=0
+compressor='gzip'
 
 parsedparams=$(getopt -n "$myname" -o "$shortopts" -l "$longopts" -- "$@")
 eval set -- "$parsedparams"
 
 processOptions "$@"
 
+msg "$myname v$myver"
+
+[[ "$src" == '-' && -t 0 ]] && usage "Cannot read from terminal as standard input. Pipe something into me. Aborting."
+
 if [ "$mode" == 'info' ]; then
     showInfo "$src"
     exit 0
 fi
 
-msg "Mode: $mode. '$src' => '$tgt' (reference '$ref')"
+[[ "$tgt" == '-' && -t 1 ]] && usage "Cannot write to terminal as standard out. Pipe my output into something. Aborting."
+
+msg "mode: $mode. '$src' => '$tgt' (reference '$ref')"
 
 command=''
 
@@ -379,16 +393,16 @@ fi
 [[ ! -z "$rsakey" && "$mode" == 'restore' ]] && addToPipe "openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$pass')"
 
 # decompression
-[ "$mode" == 'restore' ] && addToPipe "gzip -dc"
+[ "$mode" == 'restore' ] && addToPipe "$compressor -dc"
 
 # delta
 # full backup doesn't need any diffing or undiffing
 refdecryptcmd=''
 [ -z "$rsakey" ] || refdecryptcmd="| openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass')"
 if [ "$mode" == 'diff' ]; then
-    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | gzip -dc || kill $$)"
+    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
-    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | gzip -dc || kill $$)"
+    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
 fi
 
 # untar
@@ -403,7 +417,7 @@ fi
 
 # compression
 # only needed for mode full and diff
-[ "$mode" == 'restore' ] || addToPipe "gzip -c"
+[ "$mode" == 'restore' ] || addToPipe "$compressor -c"
 
 # encryption
 # only needed for mode full and diff

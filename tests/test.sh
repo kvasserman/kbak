@@ -125,6 +125,38 @@ function testDiffBackupFile() {
 	assertEquals 'Restored file is different' "$sha1" "$sha2"
 }
 
+function testDiffBackupFileWithPigz() {
+	doHeader 'Testing differential backup and restore of one file'
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+	
+	$kbak --pigz 4 -s "$backups/copy/file.bin" "$backups/file.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	echo "Backup file info:"
+	$kbak -s "$backups/file.kbak" --info
+	echo ""
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	
+	$kbak --pigz 4 -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	echo "Diff file info:"
+	$kbak -s "$backups/file.diff.kbak" --info
+	echo ""
+
+	$kbak --pigz 4 --restore -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
+	assertEquals "$kbak call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
+
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored file is different' "$sha1" "$sha2"
+}
+
 function testDiffBackupDirectory() {
 	doHeader 'Testing differential backup and restore of a directory'
 
@@ -226,6 +258,35 @@ function testDiffBackupFileWithEncryption() {
 	assertEquals "$kbak call failed" 0 $?
 
 	$kbak --restore -k "$key" -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
+	assertEquals "$kbak call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
+
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored file is different' "$sha1" "$sha2"
+
+	# ls -l "$backups"
+}
+
+function testDiffBackupFileWithEncryptionWithPigz() {
+	doHeader 'Testing differential backup and restore of one file with encryption'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+	
+	$kbak --pigz 4 -k "$key" -s "$backups/copy/file.bin" "$backups/file.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	
+	$kbak --pigz 4 -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	$kbak --pigz 4 --restore -k "$key" -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
 	assertEquals "$kbak call failed" 0 $?
 
 	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"

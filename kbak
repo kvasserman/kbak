@@ -47,6 +47,7 @@ Usage:
                                     in restore mode source is full-backup or diff file
     -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup         
         --pigz <N>                  Use pigz for compression (N is the number of processors to use)                   
+    -1 to -9                        Compression level (default is 6)
     -p, --progress                  show progress
     -q, --quiet                     don't output normal messages (disables progress)
     -h, --help                      this help
@@ -56,7 +57,7 @@ EOF
     exit $exitcode
 }
 
-shortopts='fdr:s:k:pqxh'
+shortopts='fdr:s:k:pqxh123456789'
 longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info,pigz:'
 
 function processOptions() {
@@ -98,6 +99,9 @@ function processOptions() {
                 cpus="$2"
                 compressor="pigz -p $cpus"
                 shift 2;;
+            -1|-2|-3|-4|-5|-6|-7|-8|-9)
+                complevel="$1"
+                shift;;
             -h|--help)
                 usage '' 0;;
             --) 
@@ -258,6 +262,7 @@ refpass=''
 skipbytes=0
 refskipbytes=0
 compressor='gzip'
+complevel='-6'
 
 parsedparams=$(getopt -n "$myname" -o "$shortopts" -l "$longopts" -- "$@")
 eval set -- "$parsedparams"
@@ -274,6 +279,8 @@ if [ "$mode" == 'info' ]; then
 fi
 
 [[ "$tgt" == '-' && -t 1 ]] && usage "Cannot write to terminal as standard out. Pipe my output into something. Aborting."
+
+compressor+=" $complevel"
 
 msg "mode: $mode. '$src' => '$tgt' (reference '$ref')"
 

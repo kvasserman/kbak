@@ -24,26 +24,26 @@ Usage:
             $myname
         form 0.1 (stdin sent backed up to stdout with progress)
             $myname -p
-        form 1 (full backup of a file, directory or block device)
-            $myname -s <FILE|DIR|BLOCK-DEV> [<TARGET-FILE>]
+        form 1 (full backup of a file or block device)
+            $myname -s <FILE|BLOCK-DEV> [TARGET-FILE]
         form 2 (full backup of standard input)
-            $myname [<TARGET-FILE>]
-        form 3 (differential backup of a file, directory or block device)
-            $myname -d -s <FILE|DIR|BLOCK-DEV> -r <FULL-FILE> [<TARGET-FILE>]
+            $myname [TARGET-FILE]
+        form 3 (differential backup of a file or block device)
+            $myname -d -s <FILE|BLOCK-DEV> -r <FULL-FILE> [TARGET-FILE]
         form 4 (differential backup of standard input)
-            $myname -d -r <FULL-FILE> [<TARGET-FILE>]
+            $myname -d -r <FULL-FILE> [TARGET-FILE]
     Restore:
         form 5 (restore a file)
-            $myname --restore -s <FILE> [<TARGET-FILE|TARGET-DIR>]
+            $myname --restore -s <FILE> [TARGET-FILE]
         form 6 (restore a differential backup of a file)
-            $myname --restore -s <DIFF-FILE> -r <FULL-FILE> [<TARGET-FILE|TARGET-DIR>]
+            $myname --restore -s <DIFF-FILE> -r <FULL-FILE> [TARGET-FILE]
 
     -f, --full                      full backup mode (default)
     -d, --diff, --differential      differential backup mode
     -x, --restore                   restore mode
         --info                      show backup information about source file
     -r, --reference <full-backup>   full backup file to reference for differential backup/restore
-    -s, --source <source>           source to backup. a file, a directory or a block device
+    -s, --source <source>           source to backup. a file or a block device
                                     in restore mode source is full-backup or diff file
     -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup         
         --pigz <N>                  Use pigz for compression (N is the number of processors to use)                   
@@ -51,8 +51,6 @@ Usage:
     -p, --progress                  show progress
     -q, --quiet                     don't output normal messages (disables progress)
     -h, --help                      this help
-
-    NOTE: In restore mode the target must be a directory if the backup was of a directory
 EOF
     exit $exitcode
 }
@@ -114,11 +112,10 @@ function processOptions() {
                 if [[ "$mode" == 'restore' || "$mode" == 'info' ]]; then
                     [[ "$src" == '-' || -f "$src" ]] || usage "Source must be stdin or an existing file. Provided '$src'"
                 else
-                    [[ "$src" == '-' || -f "$src" || -d "$src" || -b "$src" ]] || usage "Source must be stdin or an existing file, directory or block device. Provided '$src'"
+                    [[ "$src" == '-' || -f "$src" || -b "$src" ]] || usage "Source must be stdin, an existing file or block device. Provided '$src'"
                 fi
 
                 [[ "$tgt" == '-' || ! -f "$tgt" ]] || usage "Target file '$tgt' already exists"
-                [[ "$tgt" == '-' || -d "$(dirname "$tgt")" ]] || usage "Target directory '$(dirname "$tgt")' doesn't exist"
 
                 [[ "$mode" != 'diff' || -f "$ref" ]] || usage "Reference file '$ref' doesn't exist"
                 [[ "$src" != "$ref" ]] || usage "Reference file must be different from source"
@@ -378,7 +375,7 @@ fi
 # input
 if [  "$src" == '-' ]; then
     [ $progress -eq 1 ] && addToPipe "pv -petr" 
-elif [[ -f "$src" || -b "$src" ]]; then
+else 
     [ $skipbytes -gt 0 ] && addToPipe "dd bs=$skipbytes skip=1 if='$src' status=none" || addToPipe "cat '$src'"
     if [ $progress -eq 1 ]; then
         filesize=''
@@ -391,8 +388,6 @@ elif [[ -f "$src" || -b "$src" ]]; then
         filesize="s $filesize"
         addToPipe "pv -petr${filesize}"
     fi
-else
-    [ $progress -eq 1 ] && addToPipe "tar -cvS '$src'" || addToPipe "tar -cS '$src'"
 fi
 
 # decryption
@@ -410,16 +405,6 @@ if [ "$mode" == 'diff' ]; then
     addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
     addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
-fi
-
-# untar
-# only needed if mode is restore and target is a directory
-if [[ "$mode" == 'restore' && -d "$tgt"  ]]; then
-	if [ $progress -eq 1 ]; then
-		addToPipe "tar -xv -C '$tgt'"
-	else
-		addToPipe "tar -x -C '$tgt'"
-	fi
 fi
 
 # compression

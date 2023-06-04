@@ -83,10 +83,10 @@ function testBackupFileStdOut() {
 function testBackupDirectory() {
 	doHeader 'Testing backup and restore of one directory'
 
-	$kbak -s "$files" "$backups/files.kbak"
+	tar -cS "$files" | $kbak "$backups/files.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
-	$kbak --restore -s "$backups/files.kbak" "$backups"
+	$kbak --restore -s "$backups/files.kbak" | tar -xC "$backups"
 	assertEquals "$kbak call failed" 0 $?
 
 	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
@@ -195,7 +195,7 @@ function testDiffBackupDirectory() {
 	mkdir -p "$backups/copy"
 	cp -r "$files"/* "$backups/copy/"
 
-	$kbak -s "$backups/copy" "$backups/files.kbak"
+	tar -cS "$backups/copy" | $kbak "$backups/files.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
 	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
@@ -203,11 +203,11 @@ function testDiffBackupDirectory() {
 	echo "new text" >> "$backups/copy/sub/text3.txt"
 	rm "$backups/copy/text.txt"
 
-	$kbak -s "$backups/copy" -dr "$backups/files.kbak" "$backups/files.diff.kbak"
+	tar -cS "$backups/copy" | $kbak -dr "$backups/files.kbak" "$backups/files.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
 	mkdir -p "$backups/diff"
-	$kbak --restore -s "$backups/files.diff.kbak" -r "$backups/files.kbak" "$backups/diff"
+	$kbak --restore -s "$backups/files.diff.kbak" -r "$backups/files.kbak" | tar -xC "$backups/diff"
 	assertEquals "$kbak call failed" 0 $?
 
 	local sha1="$(sha256sum "$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
@@ -359,63 +359,10 @@ function testDiffBackupFileWithEncryptionWithPigzAndCompLevel() {
 	# ls -l "$backups"
 }
 
-function testBackupDirectoryWithEncryption() {
-	doHeader 'Testing backup and restore of one directory with encryption'
-
-	local key="$backups/private.key"
-	openssl genrsa -out "$key" 4096
-
-	$kbak -k "$key" -s "$files" "$backups/files.kbak"
-	assertEquals "$kbak call failed" 0 $?
-
-	$kbak --restore -k "$key" -s "$backups/files.kbak" "$backups"
-	assertEquals "$kbak call failed" 0 $?
-
-	assertEquals 'Restored files are different' "$(sha256sum "$files"/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/* | cut -d' ' -f1)"
-	assertEquals 'Restored files are different in sub' "$(sha256sum "$files"/sub/* | cut -d' ' -f1)" "$(sha256sum "$backups/$files"/sub/* | cut -d' ' -f1)"
-}
-
-function testDiffBackupDirectoryWithEncryption() {
-	doHeader 'Testing differential backup and restore of a directory with encryption'
-
-	local key="$backups/private.key"
-	openssl genrsa -out "$key" 4096
-
-	mkdir -p "$backups/copy"
-	cp -r "$files"/* "$backups/copy/"
-
-	$kbak -k "$key" -s "$backups/copy" "$backups/files.kbak"
-	assertEquals "$kbak call failed" 0 $?
-
-	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
-	echo "new text" >> "$backups/copy/text2.txt"
-	echo "new text" >> "$backups/copy/sub/text3.txt"
-	rm "$backups/copy/text.txt"
-
-	$kbak -k "$key" -s "$backups/copy" -dr "$backups/files.kbak" "$backups/files.diff.kbak"
-	assertEquals "$kbak call failed" 0 $?
-
-	mkdir -p "$backups/diff"
-	$kbak --restore -k "$key" -s "$backups/files.diff.kbak" -r "$backups/files.kbak" "$backups/diff"
-	assertEquals "$kbak call failed" 0 $?
-
-	local sha1="$(sha256sum "$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
-	local sha2="$(sha256sum "$backups/diff/$backups/copy"/* 2>/dev/null | cut -d' ' -f1)"
-	
-	assertNotEquals 'sha is blank' "$sha1" ''
-	assertEquals 'Restored directory is different' "$sha1" "$sha2"
-
-	local sha1="$(sha256sum "$backups/copy/sub"/* 2>/dev/null | cut -d' ' -f1)"
-	local sha2="$(sha256sum "$backups/diff/$backups/copy/sub"/* 2>/dev/null | cut -d' ' -f1)"
-	
-	assertNotEquals 'sha is blank' "$sha1" ''
-	assertEquals 'Restored sub-directory is different' "$sha1" "$sha2"
-}
-
 # function suite() {
 # 	# suite_addTest testBackupFile
 # 	# suite_addTest testBackupFileWithEncryption
-# 	suite_addTest testDiffBackupFile
+# 	suite_addTest testBackupDirectory
 # }
 
 fullpath="$(readlink -f "$0")"

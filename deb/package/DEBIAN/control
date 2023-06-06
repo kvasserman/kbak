@@ -1,0 +1,10 @@
+Package: kbak
+Version: xxxx
+Section: base
+Priority: optional
+Architecture: amd64
+Suggests: 
+Depends: gzip, openssl, pv, xdelta3, pigz
+Maintainer: Konstantin Vasserman <kostya@kostya.com>
+Description: Bash backup script for differential backups with encryption
+

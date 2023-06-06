@@ -41,10 +41,11 @@ Usage:
     -f, --full                      full backup mode (default)
     -d, --diff, --differential      differential backup mode
     -x, --restore                   restore mode
-        --info                      show backup information about source file
+        --info                      show information about kbak file
+        --verify                    read source and verify it's integrity
     -r, --reference <full-backup>   full backup file to reference for differential backup/restore
     -s, --source <source>           source to backup. a file or a block device
-                                    in restore mode source is full-backup or diff file
+                                    in restore mode source is full or diff kbak file
     -k, --key <rsa-private-key>     RSA private key file to encrypt/decrypt the backup         
         --pigz <N>                  Use pigz for compression (N is the number of processors to use)                   
     -1 to -9                        Compression level (default is 6)
@@ -56,26 +57,30 @@ EOF
 }
 
 shortopts='fdr:s:k:pqxh123456789'
-longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info,pigz:'
+longopts='full,diff,differential,reference:,source:,key:,progress,quiet,restore,help,info,pigz:,verify'
 
 function processOptions() {
     while true; do
         case "$1" in
             -f|--full)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore, --info or --verify"
                 mode='full'
                 shift;;
             -d|--diff|--differential)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore, --info or --verify"
                 mode='diff'
                 shift;;
             -x|--restore)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore, --info or --verify"
                 mode='restore'
                 shift;;
             --info)
-                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore or --info"
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore, --info or --verify"
                 mode='info'
+                shift;;
+            --verify)
+                [ -z "$mode" ] || usage "Choose one mode: --full, --differential, --restore, --info or --verify"
+                mode='verify'
                 shift;;
             -s|--source)
                 src="$2"
@@ -109,7 +114,7 @@ function processOptions() {
 
                 [ -z "$mode" ] && mode='full'
 
-                if [[ "$mode" == 'restore' || "$mode" == 'info' ]]; then
+                if [[ "$mode" == 'restore' || "$mode" == 'info' || "$mode" == 'verify' ]]; then
                     [[ "$src" == '-' || -f "$src" ]] || usage "Source must be stdin or an existing file. Provided '$src'"
                 else
                     [[ "$src" == '-' || -f "$src" || -b "$src" ]] || usage "Source must be stdin, an existing file or block device. Provided '$src'"
@@ -236,13 +241,74 @@ Payload SHA256:             $sha256
 EOF
 }
 
+function verify() {
+    local header="$(getHeader "$1")"
+
+    local ts=$((16#$(getHeaderPart "$header" tstamp)))
+    local refid="$(getHeaderPart "$header" refid)"
+    local keysha="$(getHeaderPart "$header" keysha)"
+    local sha256="$(getHeaderPart "$header" sha256)"
+
+    [ -z "$(printf "$refid" | sed 's/0//g')" ] && refid='n/a'
+    [ -z "$(printf "$keysha" | sed 's/0//g')" ] && keysha='n/a'
+    [ -z "$(printf "$sha256" | sed 's/0//g')" ] && sha256='n/a'
+    
+    [ $quiet -eq 1 ] || cat <<EOF
+Source file:                $1
+File Version:               $((16#$(getHeaderPart "$header" fver)))
+Backup Type:                $(getHeaderPart "$header" mode)
+Backup Id:                  $(getHeaderPart "$header" id)
+Reference Backup Id:        $refid
+UTC Backup Time:            $(date -u -d @$ts)
+Local Backup Time:          $(date -d @$ts)
+Key Signature:              $keysha
+Payload SHA256:             $sha256
+
+EOF
+
+    if [[ "$keysha" != 'n/a' && -z "$rsakey" ]]; then 
+        msg "Verification of encrypted payload requires key. Please provide --key option" 
+        exit 1
+    fi
+
+    local keysize=0
+
+    [ "$keysha" != 'n/a' ] && keysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
+
+    local skipbytes=$((${#header} + $keysize))
+    local cmd="dd bs=$skipbytes skip=1 status=none"
+    [ "$src" == '-' ] || cmd+=" if='$src'"
+    
+    if [ $progress -eq 1 ]; then
+        if [ "$src" == '-' ]; then
+            cmd+=' | pv -petr'
+        else
+            filesize=''
+            if [ -f "$src" ]; then
+                filesize=$(stat --printf='%s' "$src")
+            else
+                filesize=$(blockdev --getsize64 "$src")
+            fi
+            [ $skipbytes -gt 0 ] && filesize=$(($filesize - $skipbytes))
+            filesize="s $filesize"
+            cmd+=" | pv -petr${filesize}"
+        fi
+    fi
+
+    cmd+=" | sha256sum | cut -d' ' -f1"
+
+    local fsha256=$(eval "$cmd")
+
+    [ "$sha256" == "$fsha256" ] && msg "Payload verified." || { msg "Payload verification failed."; exit 1; }
+}
+
 # End Functions
 
 # Main
 
 # global constants
 myname='kbak'
-myver='1.1'
+myver='1.2'
 filever=1
 sig='kbak'
 
@@ -275,6 +341,10 @@ if [ "$mode" == 'info' ]; then
     exit 0
 fi
 
+if [ "$mode" == 'verify' ]; then
+    verify "$src" && exit 0 || exit 1
+fi
+
 [[ "$tgt" == '-' && -t 1 ]] && usage "Cannot write to terminal as standard out. Pipe my output into something. Aborting."
 
 compressor+=" $complevel"
@@ -294,10 +364,13 @@ if [ "$mode" == 'restore' ]; then
     fmode="$(getHeaderPart "$fheader" mode)"
     frefid="$(getHeaderPart "$fheader" refid)"
     fkeysig="$(getHeaderPart "$fheader" keysha)"
+    fsha256="$(getHeaderPart "$fheader" sha256)"
 
     [[ -z "$rsakey" || "$keysig" == "$fkeysig" ]] || (msg "File '$src' is not encrypted with the provided key."; exit 1)
     [[ "$fmode" == 'diff' && -z "$ref" ]] && (msg "Source is a differential backup, but reference to full backup is not provided."; exit 1)
     [[ "$fmode" == 'full' && ! -z "$ref" ]] && (msg "Source is a full backup, but reference is also provided."; exit 1)
+
+    [ -z "$(printf "$fsha256" | sed 's/0//g')" ] && { fsha256=''; msg "WARNING: Source has no payload hash and cannot be verified."; }
 
     refid=''
     if [ ! -z "$ref" ]; then 
@@ -305,10 +378,13 @@ if [ "$mode" == 'restore' ]; then
         refmode="$(getHeaderPart "$refheader" mode)"
         refid="$(getHeaderPart "$refheader" id)"
         refkeysig="$(getHeaderPart "$refheader" keysha)"
+        refsha256="$(getHeaderPart "$refheader" sha256)"
 
         [[ "$refmode" != 'full' ]] && (msg "Reference is not a full backup."; exit 1)
         [[ -z "$rsakey" || "$keysig" == "$refkeysig" ]] || (msg "File '$ref' is not encrypted with the provided key."; exit 1)
         [[ "$frefid" != "$refid" ]] && (msg "Reference '$ref' is not the reference that was used to create source diff backup."; exit 1)
+
+        [ -z "$(printf "$refsha256" | sed 's/0//g')" ] && { refsha256=''; msg "WARNING: Reference has no payload hash and cannot be verified."; }
 
         refskipbytes=$(($refskipbytes + ${#refheader}))
     fi
@@ -320,6 +396,10 @@ else
     if [ "$mode" == 'diff' ]; then 
         refheader="$(getHeader "$ref")"
         refid="$(getHeaderPart "$refheader" id)"
+        refsha256="$(getHeaderPart "$refheader" sha256)"
+
+        [ -z "$(printf "$refsha256" | sed 's/0//g')" ] && { refsha256=''; msg "WARNING: Reference has no payload hash and cannot be verified."; }
+
         refskipbytes=$(($refskipbytes + ${#refheader}))
     fi
     
@@ -390,6 +470,13 @@ else
     fi
 fi
 
+# sha calc
+restoresha=''
+if [[ "$mode" == 'restore' && ! -z "$fsha256" ]]; then
+    restoresha="$(mktemp)"
+    addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$restoresha' || kill $$)"
+fi
+
 # decryption
 # only needed if key is provided and it's restore
 [[ ! -z "$rsakey" && "$mode" == 'restore' ]] && addToPipe "openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$pass')"
@@ -399,12 +486,16 @@ fi
 
 # delta
 # full backup doesn't need any diffing or undiffing
-refdecryptcmd=''
-[ -z "$rsakey" ] || refdecryptcmd="| openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass')"
+refsha=''
+refsubcmd=''
+
+[[ ! -z "$ref" && ! -z "$refsha256" ]] && { refsha="$(mktemp)"; refsubcmd+=" | tee >(sha256sum | cut -d' ' -f1 > '$refsha' || kill $$)"; }
+[ -z "$rsakey" ] || refsubcmd+=" | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass')"
+
 if [ "$mode" == 'diff' ]; then
-    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
+    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
-    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refdecryptcmd | $compressor -dc || kill $$)"
+    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
 fi
 
 # compression
@@ -416,10 +507,10 @@ fi
 [[ -z "$rsakey" || "$mode" == 'restore' ]] || addToPipe "openssl enc -e -aes256 -pbkdf2 -iter 10000 -pass file:<(printf '$pass')"
 
 # sha calc
-tempsha=''
+backupsha=''
 if [[ "$mode" != 'restore' && "$tgt" != '-' ]]; then
-    tempsha=$(mktemp)
-    addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$tempsha' || kill $$)"
+    backupsha="$(mktemp)"
+    addToPipe "tee >(sha256sum | cut -d' ' -f1 > '$backupsha' || kill $$)"
 fi
 
 #output
@@ -434,11 +525,33 @@ fi
 # run the thing
 eval "$command"
 
-if [ -f "$tempsha" ]; then
+if [ -f "$backupsha" ]; then
     # update target header with content hash
-    hash=$(cat "$tempsha")
+    hash=$(cat "$backupsha")
+    rm "$backupsha"
     printf "$hash" | dd bs=1 count=64 seek=160 conv=notrunc of="$tgt" status=none
-    rm "$tempsha"
+fi
+
+if [ -f "$restoresha" ]; then
+    hash=$(cat "$restoresha")
+    rm "$restoresha"
+    if [ "$hash" != "$fsha256" ]; then
+        msg "Source content verification failed. Source may be corrupt."
+        exit 1
+    else
+        msg "Source content verification passed."
+    fi
+fi
+
+if [ -f "$refsha" ]; then
+    hash=$(cat "$refsha")
+    rm "$refsha"
+    if [ "$hash" != "$refsha256" ]; then
+        msg "Reference content verification failed. Reference may be corrupt."
+        exit 1
+    else
+        msg "Reference content verification passed."
+    fi
 fi
 
 msg "Done"

@@ -106,6 +106,10 @@ function testDiffBackupFile() {
 	$kbak -s "$backups/file.kbak" --info
 	echo ""
 
+	$kbak --verify -s "$backups/file.kbak"
+	assertEquals "$kbak call failed" 0 $?
+	echo ""
+
 	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
 	
 	$kbak -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
@@ -113,6 +117,10 @@ function testDiffBackupFile() {
 
 	echo "Diff file info:"
 	$kbak -s "$backups/file.diff.kbak" --info
+	echo ""
+
+	echo "Diff file info:"
+	$kbak -s "$backups/file.diff.kbak" --verify
 	echo ""
 
 	$kbak --restore -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
@@ -284,9 +292,15 @@ function testDiffBackupFileWithEncryption() {
 	$kbak -k "$key" -s "$backups/copy/file.bin" "$backups/file.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
+	$kbak -k "$key" -s "$backups/file.kbak" --verify
+	assertEquals "$kbak call failed" 0 $?
+
 	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
 	
 	$kbak -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	$kbak -k "$key" -s "$backups/file.diff.kbak" --verify
 	assertEquals "$kbak call failed" 0 $?
 
 	$kbak --restore -k "$key" -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
@@ -365,14 +379,15 @@ function testDiffBackupFileWithEncryptionWithPigzAndCompLevel() {
 # 	suite_addTest testBackupDirectory
 # }
 
-fullpath="$(readlink -f "$0")"
-relpath="$(realpath --relative-to=. "$fullpath")"
-mydir="$(dirname "$relpath")"
+fullpath="$(realpath "$0")"
+mydir="$(dirname "$fullpath")"
 
 tempd="$(mktemp -d)"
 files="$tempd/files"
 backups="$tempd/backups"
-kbak="$(realpath --relative-to=. "$mydir/../kbak")"
+kbak="$(realpath "$mydir/../kbak")"
+
+# echo "$kbak"
 
 . shunit2
 

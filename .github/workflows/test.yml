@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: install dependencies
-      run: apt-get install -y gzip openssl pigz pv xdelta3 shunit2
+      run: sudo apt-get install -y gzip openssl pigz pv xdelta3 shunit2
     - name: run tests
       run: tests/test.sh
       

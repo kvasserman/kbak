@@ -2,6 +2,24 @@
 
 **kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups. 
 
+# Features
+
+- Full and Differential Backups of a file, block device or standard input
+- Automatic payload compression with gzip or, optionally, with pigz for multiprocessing
+- Optional AES256 encryption of payload
+- Automatic payload checksum and verification [^checksum] [^sum]
+- Backup file header allows for quick information retrieval: unique id, timestamp, sha256 sum, key signature, reference backup id, etc.
+- Changes to the code are automaticaly tested to ensure they don't break backup and restore integrity of the backups.
+
+# Installation
+
+- Download the script, put it anywhere, make it executable and run it. 
+    - Don't forget to install dependencies: `sudo apt-get install gzip pigz openssl pv`
+    - There are not configs or settings, it's a single file script.
+- Download the deb package from [Releases](https://github.com/kvasserman/kbak/releases) page. 
+    - Install dependencies: `sudo apt-get install gzip pigz openssl pv`. 
+    - Install the script: `sudo dpkg -i kbak-xxxx.deb`
+
 ## Usage
 
 Available options:
@@ -71,8 +89,27 @@ restore differential backup (requires reference to full backup)
 restore differential backup with decryption [^samekey]
 > $ `kbak -x -s myfile.diff.kbak -r myfile.full.kbak -k private.pem myfile.restored`
 
-### Footnotes
+# Current Limitations
 
+- Only RSA private keys are currently supported for encryption [^key]
+- Different keys for full and differential backups are not supported [^samekey]
+- Diff backup and Restore modes expect full backup reference to be a file (it can't be streamed)
+
+# Credits
+
+As it is a script, it's built on the top of other excellent low level tools:
+- gzip
+- pigz
+- openssl
+- [xdelta3](https://github.com/jmacd/xdelta)
+- pv
+- dd
+- [shunit2](https://github.com/kward/shunit2)
+
+# Footnotes
+
+[^checksum]: Checksum is not written if the backup is sent to standard out
+[^sum]: Checksum verification requires the entire content of backup file(s) to be read
 [^full]: Full backup mode is default, so -f or --full can be ommited
 [^key]: Key is expected to be a valid RSA private key. It can be generated with `openssl genrsa -out private.pem 4096`
 [^samekey]: The same key must be used for full and differential backups (for right now)

@@ -1,15 +1,6 @@
-<style>
-td, th {
-   border: none !important;
-   vertical-align: top !important;
-}
-</style>
-
 # kbak
 
-| | |
-| --- | --- |
-| **kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups.<br><br>As it is a shell script, it relies on multiple low level [tools](#credits) to do the job, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top. | **Table of Content**<ul><li>[Features](#features)</li><li>[Installation](#installation)</li><li>[Usage](#usage)</li><li>[Examples](#examples)<ul><li>[Full Backup](#full-backup)</li><li>[Differential Backup](#differential-backup)</li><li>[Restore](#restore)</li></ul></li><li>[Performance](#performance)</li><li>[Current Limitations](#current-limitations)</li><li>[Credits](#credits)</li><li>[License](#license)</li><li>[Footnotes](#footnotes)</li></ul> |
+**kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups.<br><br>As it is a shell script, it relies on multiple low level [tools](#credits) to do the job, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top.
 
 # Features
 
@@ -20,8 +11,8 @@ td, th {
 - Backup file header allows for quick information retrieval: unique id, timestamp, sha256 sum, key signature, reference backup id, etc.
 - Unique backup IDs allow for aditional checking on restore: you can't restore differential backup by referencing a wrong full backup.
 - Options to show progress of backup or to quiet script messages completely.
-- Low memory and disk requirments (the whole process is streamed, so there are no large temporary files).
-- Changes to the code are automaticaly tested to ensure they don't break backup and restore integrity of the backups.
+- Low memory and disk requirements (the whole process is streamed, so there are no large temporary files).
+- Changes to the code are automatically tested to ensure they don't break backup and restore integrity of the backups.
 
 # Installation
 
@@ -103,7 +94,7 @@ restore differential backup with decryption [^samekey]
 
 # Performance
 
-Performance delepends on many factors: disks performance, kind and number of processors, type of data being compressed, level of compression, whether encryption is used, etc. So all the numbers are purly anecdotal, but I'm able to compress and encrypt 500GB LVM volume (source and target are on SSDs, with about 120GB of real data on the source volume) in about 20 minutes (this is using 8 cores for compression with `--pigz 8` option).
+Performance depends on many factors: disks performance, kind and number of processors, type of data being compressed, level of compression, whether encryption is used, etc. So all the numbers are purely anecdotal, but I'm able to compress and encrypt 500GB LVM volume (source and target are on SSDs, with about 120GB of real data on the source volume) in about 20 minutes (this is using 8 cores for compression with `--pigz 8` option).
 
 Differential backups are slower, because the code have to both read, decompress and, optionally, decrypt the entire full backup reference file as well as process the source.
 
@@ -130,13 +121,15 @@ GNU General Public License version 3.
 
 # TODOs
 
-- allow for 
+- Allow for ED25519 keys to be used for encryption.
+- Allow for different keys to be used for full and differential backups
+- Allow for full backup reference to be streamed: `-r <(cat myfile.kbak)`
 
 # Footnotes
 
 [^checksum]: Checksum is not written if the backup is sent to standard out.
 [^sum]: Checksum verification requires the entire content of backup file(s) to be read.
-[^full]: Full backup mode is default, so -f or --full can be ommited.
+[^full]: Full backup mode is default, so -f or --full can be omitted.
 [^key]: Key is expected to be a valid RSA private key. It can be generated with `openssl genrsa -out private.pem 4096`.
 [^samekey]: The same key must be used for full and differential backups.
 [^pigz]: pigz with multiple cores can provide significant speed up on compression, but decompression is still single threaded and doesn't help with restore or reading the full backup reference in diff mode.

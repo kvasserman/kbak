@@ -23,8 +23,7 @@ jobs:
         echo "Build returned: $artifacts"
       
         echo "Creating release"
-        gh release create "$vtag" \
-          --draft \
-          --title="${GITHUB_REPOSITORY#*/}" "$tag" \
-          --notes-file "release-notes/${vtag}.md" \
-          $artifacts
+        gh release create "$vtag" --draft \
+        --title="${GITHUB_REPOSITORY#*/} $tag" \
+        --notes-file "release-notes/${vtag}.md" \
+        $artifacts

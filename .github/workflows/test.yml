@@ -1,5 +1,8 @@
 on: 
-  push: 
+  push:
+    branches:
+      - main
+      - release 
     paths:
     - 'src/**'
     - 'tests/**'

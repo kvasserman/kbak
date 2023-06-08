@@ -13,9 +13,8 @@ jobs:
     - name: Build and Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        ref: ${{ github.event.push.ref }}      
       run: |
-        vtag="${ref##*/}"
+        vtag="${GITHUB_REF##*/}"
         tag="${vtag#v}"
 
         echo "Running build for $vtag (${tag})"

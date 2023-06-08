@@ -1,14 +1,26 @@
+<style>
+td, th {
+   border: none !important;
+   vertical-align: top !important;
+}
+</style>
+
 # kbak
 
-**kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups. 
+| | |
+| --- | --- |
+| **kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups.<br><br>As it is a shell script, it relies on multiple low level [tools](#credits) to do the job, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top. | **Table of Content**<ul><li>[Features](#features)</li><li>[Installation](#installation)</li><li>[Usage](#usage)</li><li>[Examples](#examples)<ul><li>[Full Backup](#full-backup)</li><li>[Differential Backup](#differential-backup)</li><li>[Restore](#restore)</li></ul></li><li>[Performance](#performance)</li><li>[Current Limitations](#current-limitations)</li><li>[Credits](#credits)</li><li>[License](#license)</li><li>[Footnotes](#footnotes)</li></ul> |
 
 # Features
 
 - Full and Differential Backups of a file, block device or standard input
-- Automatic payload compression with gzip or, optionally, with pigz for multiprocessing
+- Automatic payload compression with gzip or, optionally, with pigz for multiprocessing speedup of the backups [^pigz]
 - Optional AES256 encryption of payload
 - Automatic payload checksum and verification [^checksum] [^sum]
 - Backup file header allows for quick information retrieval: unique id, timestamp, sha256 sum, key signature, reference backup id, etc.
+- Unique backup IDs allow for aditional checking on restore: you can't restore differential backup by referencing a wrong full backup.
+- Options to show progress of backup or to quiet script messages completely.
+- Low memory and disk requirments (the whole process is streamed, so there are no large temporary files).
 - Changes to the code are automaticaly tested to ensure they don't break backup and restore integrity of the backups.
 
 # Installation
@@ -22,7 +34,7 @@
 
 ## Usage
 
-Available options:
+    kbak [options] [target]    
 
     -f, --full                      full backup mode (default)
     -d, --diff, --differential      differential backup mode
@@ -89,6 +101,12 @@ restore differential backup (requires reference to full backup)
 restore differential backup with decryption [^samekey]
 > $ `kbak -x -s myfile.diff.kbak -r myfile.full.kbak -k private.pem myfile.restored`
 
+# Performance
+
+Performance delepends on many factors: disks performance, kind and number of processors, type of data being compressed, level of compression, whether encryption is used, etc. So all the numbers are purly anecdotal, but I'm able to compress and encrypt 500GB LVM volume (source and target are on SSDs, with about 120GB of real data on the source volume) in about 20 minutes (this is using 8 cores for compression with `--pigz 8` option).
+
+Differential backups are slower, because the code have to both read, decompress and, optionally, decrypt the entire full backup reference file as well as process the source.
+
 # Current Limitations
 
 - Only RSA private keys are currently supported for encryption [^key]
@@ -98,18 +116,27 @@ restore differential backup with decryption [^samekey]
 # Credits
 
 As it is a script, it's built on the top of other excellent low level tools:
-- gzip
-- pigz
-- openssl
+- [gzip](https://www.gnu.org/software/gzip/)
+- [pigz](https://zlib.net/pigz/)
+- [openssl](https://www.openssl.org/)
 - [xdelta3](https://github.com/jmacd/xdelta)
-- pv
-- dd
+- [pv](http://ivarch.com/programs/pv.shtml)
+- [dd](https://git.savannah.gnu.org/cgit/coreutils.git/)
 - [shunit2](https://github.com/kward/shunit2)
+
+# License
+
+GNU General Public License version 3.
+
+# TODOs
+
+- allow for 
 
 # Footnotes
 
-[^checksum]: Checksum is not written if the backup is sent to standard out
-[^sum]: Checksum verification requires the entire content of backup file(s) to be read
-[^full]: Full backup mode is default, so -f or --full can be ommited
-[^key]: Key is expected to be a valid RSA private key. It can be generated with `openssl genrsa -out private.pem 4096`
-[^samekey]: The same key must be used for full and differential backups (for right now)
+[^checksum]: Checksum is not written if the backup is sent to standard out.
+[^sum]: Checksum verification requires the entire content of backup file(s) to be read.
+[^full]: Full backup mode is default, so -f or --full can be ommited.
+[^key]: Key is expected to be a valid RSA private key. It can be generated with `openssl genrsa -out private.pem 4096`.
+[^samekey]: The same key must be used for full and differential backups.
+[^pigz]: pigz with multiple cores can provide significant speed up on compression, but decompression is still single threaded and doesn't help with restore or reading the full backup reference in diff mode.

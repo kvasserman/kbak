@@ -1,16 +1,17 @@
-on:
-  push:
-    branches:
-    - main
-    - release
+on: 
+  push: 
+    paths:
+    - 'src/**'
+    - 'tests/**'
+    - '.github/workflows/test.yml'
 jobs:
   test:
-    name: Test on latest Ubuntu
+    name: Test on Ubuntu
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
-    - name: install dependencies
+    - uses: actions/checkout@v3
+    - name: Install Dependencies
       run: sudo apt-get install -y gzip openssl pigz pv xdelta3 shunit2
-    - name: run tests
+    - name: Run Tests
       run: tests/test.sh
       

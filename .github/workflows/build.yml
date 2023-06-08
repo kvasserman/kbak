@@ -1,0 +1,29 @@
+on:
+  push:
+    branches:
+    - release
+    tags:
+    - v*
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    # - name: install dependencies
+    #   run: sudo apt-get install -y gzip openssl pigz pv xdelta3 shunit2
+    - name: Build and Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ref: ${{ github.event.push.ref }}      
+      run: |
+        vtag="${ref##*/}"
+        tag="${vtag#v}"
+
+        artifacts="$(build/build.sh "$tag")"
+      
+        gh release create "$vtag" \
+          --draft \
+          --title="${GITHUB_REPOSITORY#*/} "$tag" \
+          --notes-file "release-notes/${vtag}.md" \
+          $artifacts

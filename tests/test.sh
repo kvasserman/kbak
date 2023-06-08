@@ -385,7 +385,7 @@ mydir="$(dirname "$fullpath")"
 tempd="$(mktemp -d)"
 files="$tempd/files"
 backups="$tempd/backups"
-kbak="$(realpath "$mydir/../kbak")"
+kbak="$(realpath "$mydir/../src/kbak")"
 
 # echo "$kbak"
 

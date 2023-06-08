@@ -18,12 +18,15 @@ jobs:
         vtag="${ref##*/}"
         tag="${vtag#v}"
 
-        artifacts="$(build/build.sh "$tag")"
+        echo "Running build for $vtag (${tag})"
+
+        artifacts="$(build/build.sh "${tag}")"
         
         echo "Build returned: $artifacts"
       
         echo "Creating release"
-        gh release create "$vtag" --draft \
-        --title="${GITHUB_REPOSITORY#*/} $tag" \
+        gh release create "${vtag}" \
+        --draft \
+        --title="${GITHUB_REPOSITORY#*/} ${tag}" \
         --notes-file "release-notes/${vtag}.md" \
         $artifacts

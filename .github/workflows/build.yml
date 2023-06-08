@@ -1,7 +1,5 @@
 on:
   push:
-    branches:
-    - release
     tags:
     - v*
 jobs:
@@ -24,6 +22,6 @@ jobs:
       
         gh release create "$vtag" \
           --draft \
-          --title="${GITHUB_REPOSITORY#*/} "$tag" \
+          --title="${GITHUB_REPOSITORY#*/}" "$tag" \
           --notes-file "release-notes/${vtag}.md" \
           $artifacts

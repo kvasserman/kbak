@@ -16,12 +16,20 @@
 
 # Installation
 
-- Download the script, put it anywhere, make it executable and run it. 
-    - Don't forget to install dependencies: `sudo apt-get install gzip pigz openssl pv`
-    - There are not configs or settings, it's a single file script.
-- Download the deb package from [Releases](https://github.com/kvasserman/kbak/releases) page. 
-    - Install dependencies: `sudo apt-get install gzip pigz openssl pv`. 
-    - Install the script: `sudo dpkg -i kbak-xxxx.deb`
+## Debian based distros (Ubuntu, etc,)
+
+1. Download the deb package from the assets of the [latest release](https://github.com/kvasserman/kbak/releases/latest)
+2. Install dependencies: `sudo apt-get install gzip pigz openssl pv xdelta3`
+3. Install the package: `sudo dpkg -i kbak-xxx-xxxx.deb`
+4. Run it: `kbak --help`
+
+## Other Linux distros:
+
+1. Download the tar.gz file from the assets of the [latest release](https://github.com/kvasserman/kbak/releases/latest)
+2. Install dependencies: `sudo apt-get install gzip pigz openssl pv xdelta3`
+3. Untar the file: `tar xzvf kbak-xxx-xxxx.tar.gz`
+	- Optionally, copy or move kbak directory (or just the kbak script from it) to some other location
+4. Run it: `kbak/kbak --help`
 
 ## Usage
 

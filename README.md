@@ -29,7 +29,7 @@
 2. Install dependencies: `sudo apt-get install gzip pigz openssl pv xdelta3`
 3. Untar the file: `tar xzvf kbak-xxx-xxxx.tar.gz`
 	- Optionally, copy or move kbak directory (or just the kbak script from it) to some other location
-4. Run it: `kbak/kbak --help`
+4. Run it: `./kbak --help`
 
 ## Usage
 

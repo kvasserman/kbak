@@ -2,7 +2,7 @@
 
 **kbak** is a bash script designed to simplify creation of encrypted full and differential backups.
 
-Primary motivation for this tool was the need for a simple way to create differential backups of large binary files (VM disk images, for example) that can be encrypted and shipped to a cloud storage. 
+The primary motivation for this tool was the need for a simple way to create differential backups of large binary files or block devices (VM disk images or LVM volumes, for example) that can be encrypted and shipped to a cloud storage. But you can backup anything you can stream or turn into a file (files, directories, etc.): `tar c mydir1 mydir2 myfile | kbak`
 
 As it is a shell script, it relies on multiple low level [tools](#credits) to do the heavy lifting, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top.
 

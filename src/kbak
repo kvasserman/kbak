@@ -127,7 +127,7 @@ function processOptions() {
                 [[ -z "$rsakey" || -f "$rsakey" ]] || usage "Key must be a file"
                 [ -z "$rsakey" ] || openssl rsa -check -in "$rsakey" -noout &>/dev/null || usage "Key must be a valid RSA private key"
 
-                [[ "$compressor" == 'pigz' && ! "$cpus" =~ ^[1-9][0-9]*$ ]] && usage "pigz option requires a number of processors (an integer greater than 0)"
+                [[ "$compressor" == 'pigz' && ! "$cpus" =~ ^[1-9][0-9]*$ ]] && usage "pigz option requires a number of processors"
                 break;;
             *)
                 usage "Unknown option: $1";;

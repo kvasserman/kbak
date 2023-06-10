@@ -434,7 +434,7 @@ if [ ! -z "$rsakey" ]; then
 
     else
         # msg 'Generating random password'
-        pass='test' # $(openssl rand 50 | base64 -w0)
+        pass=$(openssl rand 50 | base64 -w0)
 
         # msg "Encrypting and storing password"
         kcmd="printf '$pass' | openssl pkeyutl -encrypt -inkey '$rsakey'"

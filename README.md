@@ -1,6 +1,10 @@
 # kbak
 
-**kbak** is a bash script designed to simplify creating and restoring encrypted full and differential backups.<br><br>As it is a shell script, it relies on multiple low level [tools](#credits) to do the job, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top.
+**kbak** is a bash script designed to simplify creation of encrypted full and differential backups.
+
+Primary motivation for this tool was the need for a simple way to create differential backups of large binary files (VM disk images, for example) that can be encrypted and shipped to a cloud storage. 
+
+As it is a shell script, it relies on multiple low level [tools](#credits) to do the heavy lifting, but it saves you from having to remember all the parameters to all the tools you have to invoke to do the job and adds some nice [features](#features) on the top.
 
 # Features
 
@@ -20,14 +24,14 @@
 
 1. Download the deb package from the assets of the [latest release](https://github.com/kvasserman/kbak/releases/latest)
 2. Install dependencies: `sudo apt-get install gzip pigz openssl pv xdelta3`
-3. Install the package: `sudo dpkg -i kbak-xxx-xxxx.deb`
+3. Install the package: `sudo dpkg -i kbak-x.x-xxxx-xx-xx-xxxxx.deb`
 4. Run it: `kbak --help`
 
 ## Other Linux distros:
 
 1. Download the tar.gz file from the assets of the [latest release](https://github.com/kvasserman/kbak/releases/latest)
 2. Install dependencies: `sudo apt-get install gzip pigz openssl pv xdelta3`
-3. Untar the file: `tar xzvf kbak-xxx-xxxx.tar.gz`
+3. Untar the file: `tar xzvf kbak-x.x-xxxx-xx-xx-xxxxx.tar.gz`
 	- Optionally, copy or move kbak directory (or just the kbak script from it) to some other location
 4. Run it: `./kbak --help`
 
@@ -115,13 +119,13 @@ Differential backups are slower, because the code have to both read, decompress 
 # Credits
 
 As it is a script, it's built on the top of other excellent low level tools:
-- [gzip](https://www.gnu.org/software/gzip/)
-- [pigz](https://zlib.net/pigz/)
-- [openssl](https://www.openssl.org/)
-- [xdelta3](https://github.com/jmacd/xdelta)
-- [pv](http://ivarch.com/programs/pv.shtml)
-- [dd](https://git.savannah.gnu.org/cgit/coreutils.git/)
-- [shunit2](https://github.com/kward/shunit2)
+- [gzip](https://www.gnu.org/software/gzip/) - GNU Gzip is a popular data compression program
+- [pigz](https://zlib.net/pigz/) - pigz, which stands for parallel implementation of gzip, is a fully functional replacement for gzip that exploits multiple processors and multiple cores to the hilt when compressing data.
+- [openssl](https://www.openssl.org/) - OpenSSL software - a robust, commercial-grade, full-featured toolkit for general-purpose cryptography and secure communication
+- [xdelta3](https://github.com/jmacd/xdelta) - Xdelta version 3 is a C library and command-line tool for delta compression using VCDIFF/RFC 3284 streams
+- [pv](http://ivarch.com/programs/pv.shtml) - Pipe Viewer is a terminal-based tool for monitoring the progress of data through a pipeline.
+- [dd](https://git.savannah.gnu.org/cgit/coreutils.git/) - a coreutils tool to "convert and copy a file"
+- [shunit2](https://github.com/kward/shunit2) - shUnit2 is a xUnit unit test framework for Bourne based shell scripts, and it is designed to work in a similar manner to JUnit, PyUnit, etc.
 
 # License
 
@@ -140,4 +144,4 @@ GNU General Public License version 3.
 [^full]: Full backup mode is default, so -f or --full can be omitted.
 [^key]: Key is expected to be a valid RSA private key. It can be generated with `openssl genrsa -out private.pem 4096`.
 [^samekey]: The same key must be used for full and differential backups.
-[^pigz]: pigz with multiple cores can provide significant speed up on compression, but decompression is still single threaded and doesn't help with restore or reading the full backup reference in diff mode.
+[^pigz]: pigz with multiple cores can provide significant speed up on compression, but decompression is still single threaded and it doesn't help with restore or reading the full backup reference in diff mode.

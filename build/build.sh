@@ -25,8 +25,8 @@ todaysecs=$(($(date -u +'%s') - $(date -u -d "$curdate" +'%s')))
 
 packver="$kbakver~$curdate-$todaysecs"
 
-targetdeb="kbak-$packver.deb"
-targetgz="kbak-$packver.tar.gz"
+targetdeb="kbak-${packver/\~/-}.deb"
+targetgz="kbak-${packver/\~/-}.tar.gz"
 
 tempdir="$(mktemp -d)"
 cp -r "$dir/deb/package/"* "$tempdir/"

@@ -112,9 +112,7 @@ Differential backups are slower, because the code have to both read, decompress 
 
 # Current Limitations
 
-- Only RSA private keys are currently supported for encryption [^key]
 - Different keys for full and differential backups are not supported [^samekey]
-- Diff backup and Restore modes expect full backup reference to be a file (it can't be streamed)
 
 # Credits
 
@@ -130,12 +128,6 @@ As it is a script, it's built on the top of other excellent low level tools:
 # License
 
 GNU General Public License version 3.
-
-# TODOs
-
-- Allow for ED25519 keys to be used for encryption.
-- Allow for different keys to be used for full and differential backups
-- Allow for full backup reference to be streamed: `-r <(cat myfile.kbak)`
 
 # Footnotes
 

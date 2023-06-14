@@ -115,15 +115,43 @@ function testDiffBackupFile() {
 	$kbak -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
 	echo "Diff file info:"
 	$kbak -s "$backups/file.diff.kbak" --info
 	echo ""
 
-	echo "Diff file info:"
+	echo "Verify diff file:"
 	$kbak -s "$backups/file.diff.kbak" --verify
 	echo ""
 
 	$kbak --restore -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
+	assertEquals "$kbak call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
+
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored file is different' "$sha1" "$sha2"
+}
+
+function testDiffBackupFileStreamRef() {
+	doHeader 'Testing differential backup and restore of one file with streamed ref'
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+	
+	$kbak -s "$backups/copy/file.bin" "$backups/file.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	
+	$kbak -s "$backups/copy/file.bin" -dr <(cat "$backups/file.kbak") "$backups/file.diff.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
+	$kbak --restore -s "$backups/file.diff.kbak" -r <(cat "$backups/file.kbak") "$backups/file-from-diff.bin"
 	assertEquals "$kbak call failed" 0 $?
 
 	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
@@ -150,6 +178,8 @@ function testDiffBackupFileWithCompLevel() {
 	
 	$kbak -9 -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
+
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
 
 	echo "Diff file info:"
 	$kbak -s "$backups/file.diff.kbak" --info
@@ -183,6 +213,8 @@ function testDiffBackupFileWithPigz() {
 	$kbak --pigz 4 -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
 	echo "Diff file info:"
 	$kbak -s "$backups/file.diff.kbak" --info
 	echo ""
@@ -213,6 +245,8 @@ function testDiffBackupDirectory() {
 
 	tar -cS "$backups/copy" | $kbak -dr "$backups/files.kbak" "$backups/files.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
+
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/files.kbak") -gt $(stat --printf='%s' "$backups/files.diff.kbak") ]"
 
 	mkdir -p "$backups/diff"
 	$kbak --restore -s "$backups/files.diff.kbak" -r "$backups/files.kbak" | tar -xC "$backups/diff"
@@ -300,6 +334,8 @@ function testDiffBackupFileWithEncryption() {
 	$kbak -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
 	$kbak -k "$key" -s "$backups/file.diff.kbak" --verify
 	assertEquals "$kbak call failed" 0 $?
 
@@ -313,6 +349,35 @@ function testDiffBackupFileWithEncryption() {
 	assertEquals 'Restored file is different' "$sha1" "$sha2"
 
 	# ls -l "$backups"
+}
+
+function testDiffBackupFileWithEncryptionRefStream() {
+	doHeader 'Testing differential backup and restore of one file with encryption and with streamed ref'
+
+	local key="$backups/private.key"
+	openssl genrsa -out "$key" 4096
+
+	mkdir -p "$backups/copy"
+	cp -r "$files"/* "$backups/copy/"
+	
+	$kbak -k "$key" -s "$backups/copy/file.bin" "$backups/file.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	dd conv=notrunc bs=1M count=2 seek=5 if=/dev/urandom of="$backups/copy/file.bin" status=none
+	
+	$kbak -k "$key" -s "$backups/copy/file.bin" -dr <(cat "$backups/file.kbak") "$backups/file.diff.kbak"
+	assertEquals "$kbak call failed" 0 $?
+
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
+	$kbak --restore -k "$key" -s "$backups/file.diff.kbak" -r <(cat "$backups/file.kbak") "$backups/file-from-diff.bin"
+	assertEquals "$kbak call failed" 0 $?
+
+	local sha1="$(sha256sum "$backups/copy/file.bin" | cut -d' ' -f1)"
+	local sha2="$(sha256sum "$backups/file-from-diff.bin" | cut -d' ' -f1)"
+
+	assertNotEquals 'sha is blank' "$sha1" ''
+	assertEquals 'Restored file is different' "$sha1" "$sha2"
 }
 
 function testDiffBackupFileWithEncryptionWithPigz() {
@@ -331,6 +396,8 @@ function testDiffBackupFileWithEncryptionWithPigz() {
 	
 	$kbak --pigz 4 -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
+
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
 
 	$kbak --pigz 4 --restore -k "$key" -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
 	assertEquals "$kbak call failed" 0 $?
@@ -361,6 +428,8 @@ function testDiffBackupFileWithEncryptionWithPigzAndCompLevel() {
 	$kbak --pigz 4 -9 -k "$key" -s "$backups/copy/file.bin" -dr "$backups/file.kbak" "$backups/file.diff.kbak"
 	assertEquals "$kbak call failed" 0 $?
 
+	assertTrue 'Diff is not smaller than full' "[ $(stat --printf='%s' "$backups/file.kbak") -gt $(stat --printf='%s' "$backups/file.diff.kbak") ]"
+
 	$kbak --pigz 4 -9 --restore -k "$key" -s "$backups/file.diff.kbak" -r "$backups/file.kbak" "$backups/file-from-diff.bin"
 	assertEquals "$kbak call failed" 0 $?
 
@@ -374,9 +443,7 @@ function testDiffBackupFileWithEncryptionWithPigzAndCompLevel() {
 }
 
 # function suite() {
-# 	# suite_addTest testBackupFile
-# 	# suite_addTest testBackupFileWithEncryption
-# 	suite_addTest testBackupDirectory
+# 	suite_addTest testDiffBackupFileWithEncryptionRefStream
 # }
 
 fullpath="$(realpath "$0")"

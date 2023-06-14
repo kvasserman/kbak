@@ -122,8 +122,9 @@ function processOptions() {
 
                 [[ "$tgt" == '-' || ! -f "$tgt" ]] || usage "Target file '$tgt' already exists"
 
-                [[ "$mode" != 'diff' || -f "$ref" ]] || usage "Reference file '$ref' doesn't exist"
+                [ "$mode" != 'diff' ] || [ -f "$ref" ] || [ -p "$ref" ] || usage "Reference file '$ref' must be a file or a pipe"
                 [[ "$src" != "$ref" ]] || usage "Reference file must be different from source"
+
                 [[ -z "$rsakey" || -f "$rsakey" ]] || usage "Key must be a file"
                 [ -z "$rsakey" ] || openssl rsa -check -in "$rsakey" -noout &>/dev/null || usage "Key must be a valid RSA private key"
 
@@ -308,7 +309,7 @@ EOF
 
 # global constants
 myname='kbak'
-myver='1.2'
+myver='1.3'
 filever=1
 sig='kbak'
 
@@ -349,7 +350,11 @@ fi
 
 compressor+=" $complevel"
 
-msg "mode: $mode. '$src' => '$tgt' (reference '$ref')"
+if [ -z "$ref" ]; then
+    msg "mode: $mode. '$src' => '$tgt'"
+else
+    msg "mode: $mode. '$src' => '$tgt' (reference '$ref')"
+fi
 
 command=''
 
@@ -425,7 +430,9 @@ if [ ! -z "$rsakey" ]; then
             refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
 
             # msg 'Decrypting reference password'
-            refpass=$(dd bs=1 count=$refkeysize skip=$refskipbytes status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+            ddskip=''
+            [ -p "$ref" ] || ddskip="skip=$refskipbytes"
+            refpass=$(dd bs=1 count=$refkeysize $ddskip status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
 
             refskipbytes=$(($refskipbytes + $refkeysize))
         fi
@@ -445,7 +452,9 @@ if [ ! -z "$rsakey" ]; then
             refkeysize=$(printf 'x' | openssl pkeyutl -encrypt -inkey "$rsakey" | wc -c)
 
             # msg "Decrypting reference password"
-            refpass=$(dd bs=1 count=$refkeysize skip=$refskipbytes status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
+            ddskip=''
+            [ -p "$ref" ] || ddskip="skip=$refskipbytes"
+            refpass=$(dd bs=1 count=$refkeysize $ddskip status=none if="$ref" | openssl pkeyutl -decrypt -inkey "$rsakey")
 
             refskipbytes=$(($refskipbytes + $refkeysize))
         fi
@@ -488,14 +497,17 @@ fi
 # full backup doesn't need any diffing or undiffing
 refsha=''
 refsubcmd=''
+refddparams=''
 
 [[ ! -z "$ref" && ! -z "$refsha256" ]] && { refsha="$(mktemp)"; refsubcmd+=" | tee >(sha256sum | cut -d' ' -f1 > '$refsha' || kill $$)"; }
 [ -z "$rsakey" ] || refsubcmd+=" | openssl enc -d -aes256 -iter 10000 -pass file:<(printf '$refpass')"
 
+[ -f "$ref" ] && refddparams="bs=$refskipbytes skip=1"
+
 if [ "$mode" == 'diff' ]; then
-    addToPipe "xdelta3 -ecRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
+    addToPipe "xdelta3 -ecRqA -s <(dd $refddparams status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
 elif [[ "$mode" == 'restore' && ! -z "$ref" ]]; then
-    addToPipe "xdelta3 -dcRqA -s <(dd bs=$refskipbytes skip=1 status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
+    addToPipe "xdelta3 -dcRqA -s <(dd $refddparams status=none if='$ref' $refsubcmd | $compressor -dc || kill $$)"
 fi
 
 # compression
